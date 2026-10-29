@@ -81,4 +81,5 @@ with col2:
 
     if len(coords) > 1:
         folium.PolyLine(coords, color="#10b981", weight=4, dash_array="8").add_to(m)
+    st_folium(m, width=700, height=550)ords, color="#10b981", weight=4, dash_array="8").add_to(m)
     st_folium(m, width=700, height=550)
