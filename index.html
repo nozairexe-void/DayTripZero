@@ -1,84 +1,419 @@
-import math
-import streamlit as st
-import folium
-from streamlit_folium import st_folium
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DayTripZero</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <style>
+      :root {
+        --bg: #f3f7fb;
+        --panel: rgba(255, 255, 255, 0.9);
+        --text: #172033;
+        --muted: #5d6a82;
+        --primary: #10b981;
+        --primary-dark: #0d9b6c;
+        --accent: #6d5efc;
+        --shadow: 0 20px 35px rgba(15, 23, 42, 0.12);
+        --border: rgba(148, 163, 184, 0.2);
+      }
 
-st.set_page_config(page_title="DayTripZero", layout="wide")
+      * { box-sizing: border-box; }
 
-PLACES = [
-    {"name": "Shri Ram Centre & Mandi House Momos", "lat": 28.6273, "lon": 77.2330, "cost": 100, "mins": 45, "tip": "Grab steamed momos outside the theatre gate."},
-    {"name": "Agrasen ki Baoli", "lat": 28.6261, "lon": 77.2250, "cost": 0, "mins": 40, "tip": "Hidden 14th-century stepwell near Hailey Road."},
-    {"name": "Oxford Bookstore & Cha Bar (CP)", "lat": 28.6304, "lon": 77.2206, "cost": 150, "mins": 60, "tip": "Browse fantasy shelves and grab a masala chai."},
-    {"name": "Jantar Mantar", "lat": 28.6271, "lon": 77.2166, "cost": 25, "mins": 45, "tip": "Giant 18th-century astronomical instruments."},
-    {"name": "India Gate & Kartavya Path", "lat": 28.6129, "lon": 77.2295, "cost": 50, "mins": 50, "tip": "Evening walk with ice cream."},
-    {"name": "Daryaganj Book Market / Old Delhi", "lat": 28.6448, "lon": 77.2407, "cost": 200, "mins": 75, "tip": "Best spot for cheap novels and box sets."},
-    {"name": "Lodhi Garden Tombs", "lat": 28.5931, "lon": 77.2197, "cost": 0, "mins": 60, "tip": "Free entry, 15th-century stone architecture."}
-]
+      body {
+        margin: 0;
+        font-family: Inter, "Segoe UI", sans-serif;
+        color: var(--text);
+        background: linear-gradient(135deg, #eef7ff, #e8f8f0);
+      }
 
-HUBS = {
-    "Mandi House": (28.6258, 77.2342),
-    "Connaught Place": (28.6315, 77.2167),
-    "Chandni Chowk": (28.6506, 77.2303),
-    "Hauz Khas": (28.5535, 77.1945)
-}
+      .page {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 32px 24px 48px;
+      }
 
-def haversine_km(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = (math.sin(dlat / 2)**2 + 
-         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2)
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: center;
+        margin-bottom: 20px;
+      }
 
-def build_itinerary(start_lat, start_lon, places, max_mins, max_budget):
-    route = []
-    unvisited = [p.copy() for p in places]
-    curr_lat, curr_lon = start_lat, start_lon
-    time_used, budget_used = 0, 0
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 3vw, 3rem);
+      }
 
-    while unvisited:
-        closest = min(unvisited, key=lambda p: haversine_km(curr_lat, curr_lon, p["lat"], p["lon"]))
-        dist = haversine_km(curr_lat, curr_lon, closest["lat"], closest["lon"])
-        travel_mins = max(5, int(dist * 15))
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 8px 14px;
+        background: rgba(16, 185, 129, 0.1);
+        color: var(--primary-dark);
+        border: 1px solid rgba(16, 185, 129, 0.2);
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.85rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
 
-        if (time_used + travel_mins + closest["mins"] <= max_mins) and (budget_used + closest["cost"] <= max_budget):
-            closest["dist_km"] = round(dist, 2)
-            closest["travel_mins"] = travel_mins
-            route.append(closest)
-            time_used += travel_mins + closest["mins"]
-            budget_used += closest["cost"]
-            curr_lat, curr_lon = closest["lat"], closest["lon"]
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+        gap: 24px;
+      }
 
-        unvisited.remove(closest)
-    return route, time_used, budget_used
+      .panel {
+        background: var(--panel);
+        backdrop-filter: blur(6px);
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        box-shadow: var(--shadow);
+      }
 
-st.title("⚡ DayTripZero — Smart Delhi Loop Builder")
-col1, col2 = st.columns([5, 7])
+      .controls {
+        padding: 24px 22px;
+      }
 
-with col1:
-    hub_name = st.selectbox("1. Choose Starting Hub", list(HUBS.keys()))
-    max_hours = st.slider("2. Available Time (Hours)", 2, 8, 4)
-    max_budget = st.slider("3. Max Budget (₹)", 200, 2000, 600, step=100)
+      .field {
+        margin-bottom: 22px;
+      }
 
-    start_lat, start_lon = HUBS[hub_name]
-    route, time_used, budget_used = build_itinerary(start_lat, start_lon, PLACES, max_hours * 60, max_budget)
+      label {
+        display: block;
+        font-size: 0.9rem;
+        font-weight: 700;
+        margin-bottom: 10px;
+      }
 
-    st.metric("Total Budget Used", f"₹{budget_used} / ₹{max_budget}")
-    st.metric("Total Time Used", f"{time_used} mins / {max_hours * 60} mins")
+      select, input[type="range"] {
+        width: 100%;
+      }
 
-    for i, stop in enumerate(route, 1):
-        st.markdown(f"**Stop {i}: {stop['name']}** ({stop['dist_km']} km • ~{stop['travel_mins']}m travel)")
-        st.caption(f"⏱ {stop['mins']} mins | 💸 ₹{stop['cost']} — {stop['tip']}")
+      select {
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: #fff;
+        font-size: 1rem;
+        color: var(--text);
+      }
 
-with col2:
-    m = folium.Map(location=[start_lat, start_lon], zoom_start=13)
-    coords = [[start_lat, start_lon]]
-    folium.Marker([start_lat, start_lon], popup="START: " + hub_name, icon=folium.Icon(color="green")).add_to(m)
+      .slider-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+        font-weight: 600;
+      }
 
-    for i, stop in enumerate(route, 1):
-        coords.append([stop["lat"], stop["lon"]])
-        folium.Marker([stop["lat"], stop["lon"]], popup=f"{i}. {stop['name']} (₹{stop['cost']})").add_to(m)
+      .value-pill {
+        background: rgba(109, 94, 252, 0.09);
+        border: 1px solid rgba(109, 94, 252, 0.18);
+        border-radius: 999px;
+        padding: 7px 12px;
+        color: var(--accent);
+        font-weight: 700;
+        font-size: 0.85rem;
+      }
 
-    if len(coords) > 1:
-        folium.PolyLine(coords, color="#10b981", weight=4, dash_array="8").add_to(m)
-    st_folium(m, width=700, height=550)
+      input[type="range"] {
+        accent-color: var(--primary);
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .stat {
+        background: linear-gradient(180deg, rgba(16, 185, 129, 0.06), rgba(16, 185, 129, 0.02));
+        border: 1px solid rgba(16, 185, 129, 0.16);
+        border-radius: 16px;
+        padding: 14px 12px;
+      }
+
+      .stat-label {
+        font-size: 0.76rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .stat-value {
+        font-size: 1.2rem;
+        font-weight: 800;
+        margin-top: 8px;
+      }
+
+      .itinerary {
+        padding: 18px 16px 8px;
+        max-height: 700px;
+        overflow: auto;
+      }
+
+      .stop {
+        padding: 16px 14px;
+        margin-bottom: 12px;
+        border-radius: 16px;
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        background: rgba(248, 250, 252, 0.8);
+      }
+
+      .stop-title {
+        font-weight: 800;
+        font-size: 1.02rem;
+        margin-bottom: 7px;
+      }
+
+      .stop-meta {
+        font-size: 0.92rem;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .map-panel {
+        min-height: 700px;
+        overflow: hidden;
+      }
+
+      #map {
+        width: 100%;
+        height: 700px;
+        border-radius: 22px;
+      }
+
+      @media (max-width: 960px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .map-panel {
+          min-height: 420px;
+        }
+
+        #map {
+          height: 420px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="topbar">
+        <h1>⚡ DayTripZero</h1>
+        <span class="badge">Smart Delhi Loop Builder</span>
+      </div>
+
+      <div class="layout">
+        <aside class="panel controls">
+          <div class="field">
+            <label for="hubSelect">Start Hub</label>
+            <select id="hubSelect"></select>
+          </div>
+
+          <div class="field">
+            <div class="slider-row">
+              <label for="hoursRange">Available Time</label>
+              <span class="value-pill" id="hoursValue">4 hours</span>
+            </div>
+            <input id="hoursRange" type="range" min="2" max="8" step="1" value="4" />
+          </div>
+
+          <div class="field">
+            <div class="slider-row">
+              <label for="budgetRange">Max Budget</label>
+              <span class="value-pill" id="budgetValue">₹600</span>
+            </div>
+            <input id="budgetRange" type="range" min="200" max="2000" step="100" value="600" />
+          </div>
+
+          <div class="stats">
+            <div class="stat">
+              <div class="stat-label">Budget Used</div>
+              <div class="stat-value" id="budgetUsed">₹0</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Time Used</div>
+              <div class="stat-value" id="timeUsed">0 mins</div>
+            </div>
+          </div>
+        </aside>
+
+        <main class="panel map-panel">
+          <div id="map"></div>
+        </main>
+      </div>
+
+      <div class="panel itinerary" style="margin-top: 24px;">
+        <div id="itineraryList"></div>
+      </div>
+    </div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script>
+      const PLACES = [
+        { name: "Shri Ram Centre & Mandi House Momos", lat: 28.6273, lon: 77.2330, cost: 100, mins: 45, tip: "Grab steamed momos outside the theatre gate." },
+        { name: "Agrasen ki Baoli", lat: 28.6261, lon: 77.2250, cost: 0, mins: 40, tip: "Hidden 14th-century stepwell near Hailey Road." },
+        { name: "Oxford Bookstore & Cha Bar (CP)", lat: 28.6304, lon: 77.2206, cost: 150, mins: 60, tip: "Browse fantasy shelves and grab a masala chai." },
+        { name: "Jantar Mantar", lat: 28.6271, lon: 77.2166, cost: 25, mins: 45, tip: "Giant 18th-century astronomical instruments." },
+        { name: "India Gate & Kartavya Path", lat: 28.6129, lon: 77.2295, cost: 50, mins: 50, tip: "Evening walk with ice cream." },
+        { name: "Daryaganj Book Market / Old Delhi", lat: 28.6448, lon: 77.2407, cost: 200, mins: 75, tip: "Best spot for cheap novels and box sets." },
+        { name: "Lodhi Garden Tombs", lat: 28.5931, lon: 77.2197, cost: 0, mins: 60, tip: "Free entry, 15th-century stone architecture." }
+      ];
+
+      const HUBS = {
+        "Mandi House": [28.6258, 77.2342],
+        "Connaught Place": [28.6315, 77.2167],
+        "Chandni Chowk": [28.6506, 77.2303],
+        "Hauz Khas": [28.5535, 77.1945]
+      };
+
+      const hubSelect = document.getElementById("hubSelect");
+      const hoursRange = document.getElementById("hoursRange");
+      const budgetRange = document.getElementById("budgetRange");
+      const hoursValue = document.getElementById("hoursValue");
+      const budgetValue = document.getElementById("budgetValue");
+      const budgetUsedEl = document.getElementById("budgetUsed");
+      const timeUsedEl = document.getElementById("timeUsed");
+      const itineraryList = document.getElementById("itineraryList");
+
+      Object.keys(HUBS).forEach((hub) => {
+        const option = document.createElement("option");
+        option.value = hub;
+        option.textContent = hub;
+        hubSelect.appendChild(option);
+      });
+
+      function haversineKm(lat1, lon1, lat2, lon2) {
+        const R = 6371.0;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+        return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      }
+
+      function buildItinerary(startLat, startLon, maxMins, maxBudget) {
+        const route = [];
+        const unvisited = PLACES.map((place) => ({ ...place }));
+        let currentLat = startLat;
+        let currentLon = startLon;
+        let timeUsed = 0;
+        let budgetUsed = 0;
+
+        while (unvisited.length) {
+          let closest = null;
+          let closestDist = Infinity;
+
+          for (const place of unvisited) {
+            const dist = haversineKm(currentLat, currentLon, place.lat, place.lon);
+            if (dist < closestDist) {
+              closestDist = dist;
+              closest = place;
+            }
+          }
+
+          const travelMins = Math.max(5, Math.round(closestDist * 15));
+
+          if (timeUsed + travelMins + closest.mins <= maxMins && budgetUsed + closest.cost <= maxBudget) {
+            const enriched = {
+              ...closest,
+              distKm: Number(closestDist.toFixed(2)),
+              travelMins
+            };
+            route.push(enriched);
+            timeUsed += travelMins + closest.mins;
+            budgetUsed += closest.cost;
+            currentLat = closest.lat;
+            currentLon = closest.lon;
+          }
+
+          const index = unvisited.findIndex((place) => place.name === closest.name);
+          if (index !== -1) unvisited.splice(index, 1);
+        }
+
+        return { route, timeUsed, budgetUsed };
+      }
+
+      function renderItinerary() {
+        const hubName = hubSelect.value;
+        const maxHours = Number(hoursRange.value);
+        const maxBudget = Number(budgetRange.value);
+        const [startLat, startLon] = HUBS[hubName];
+        const { route, timeUsed, budgetUsed } = buildItinerary(startLat, startLon, maxHours * 60, maxBudget);
+
+        hoursValue.textContent = `${maxHours} hour${maxHours > 1 ? 's' : ''}`;
+        budgetValue.textContent = `₹${maxBudget}`;
+        budgetUsedEl.textContent = `₹${budgetUsed}`;
+        timeUsedEl.textContent = `${timeUsed} mins`;
+
+        itineraryList.innerHTML = '';
+        route.forEach((stop, index) => {
+          const card = document.createElement('div');
+          card.className = 'stop';
+          card.innerHTML = `
+            <div class="stop-title">Stop ${index + 1}: ${stop.name}</div>
+            <div class="stop-meta">${stop.distKm} km away • ~${stop.travelMins} mins travel<br />⏱ ${stop.mins} mins | 💸 ₹${stop.cost} — ${stop.tip}</div>
+          `;
+          itineraryList.appendChild(card);
+        });
+
+        const map = window.daytripMap;
+        if (!map) return;
+
+        map.eachLayer((layer) => {
+          if (layer instanceof L.Marker || layer instanceof L.Polyline || layer instanceof L.CircleMarker) {
+            map.removeLayer(layer);
+          }
+        });
+
+        const center = [startLat, startLon];
+        map.setView(center, 13);
+
+        L.marker(center).addTo(map).bindPopup(`START: ${hubName}`).openPopup();
+
+        const polylineCoords = [[startLat, startLon]];
+        route.forEach((stop) => polylineCoords.push([stop.lat, stop.lon]));
+
+        route.forEach((stop, index) => {
+          L.marker([stop.lat, stop.lon])
+            .addTo(map)
+            .bindPopup(`${index + 1}. ${stop.name} (₹${stop.cost})`);
+        });
+
+        if (polylineCoords.length > 1) {
+          L.polyline(polylineCoords, { color: '#10b981', weight: 4, dashArray: '8' }).addTo(map);
+        }
+      }
+
+      const map = L.map('map').setView([28.6258, 77.2342], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+      window.daytripMap = map;
+
+      hubSelect.addEventListener('change', renderItinerary);
+      hoursRange.addEventListener('input', renderItinerary);
+      budgetRange.addEventListener('input', renderItinerary);
+
+      renderItinerary();
+    </script>
+  </body>
+</html>
